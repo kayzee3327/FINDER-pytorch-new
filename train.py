@@ -1,3 +1,4 @@
+import os
 import random
 
 import torch
@@ -45,7 +46,7 @@ K = 3
 INPUT_SIZE = 2  # size of input feature, c in Algorithm S2
 N_train = 1000
 N_episode = 10000
-T = 50
+T = 10
 C = UPDATE_TIME
 UPDATE_GRAPHS = 100
 tensor_type = torch.float32
@@ -87,6 +88,11 @@ total_training_cnt = 0
 epsilon_start = 1.0
 epsilon_end = 0.05
 time_300_episode = time.time()
+model_folder = './models'
+if os.path.exists(model_folder):
+    pass
+else:
+    os.mkdir(model_folder)
 for episode in range(1, N_episode+1):
     epsilon = epsilon_end + max(0., (epsilon_start - epsilon_end) * (N_episode - episode) / N_episode)
     if episode % 300 == 0:
@@ -98,10 +104,12 @@ for episode in range(1, N_episode+1):
         print('iter %d, eps %.4f, average size of vc:%.6f' % (episode, epsilon, robustness))
         print('testing 200 graphs time: %.2fs' % (t_end - t_start))
 
-        model_path = '%s/nrange_%d_%d_iter_%d.pt' % (
-            "/Users/wangkaize/Desktop/Flight-Delay/FINDER/FINDER-pytorch-new/model",
+        model_path = '%s/nrange_%d_%d_episode_%d.pt' % (
+            model_folder,
             NUM_MIN, NUM_MAX, episode
         )
+        torch.save(target_Q.state_dict(), model_path)
+        time_300_episode = time.time()
 
     if episode % UPDATE_GRAPHS == 0:
         train_set = prepare_train_data(N_train, NUM_MIN, NUM_MAX)

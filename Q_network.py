@@ -45,7 +45,7 @@ class Encoding(nn.Module):
         self.W_2 = nn.Parameter(tensor_init([embedding_size, embedding_size], tensor_type, device))
         self.W_3 = nn.Parameter(tensor_init([embedding_size, embedding_size], tensor_type, device))
         self.relu = nn.Sequential(
-            nn.Linear(2 * embedding_size, embedding_size),
+            nn.Linear(2 * embedding_size, embedding_size, device=device),
             nn.ReLU()
         )
         # feature of virtual node s is all one because "Note that Xs contains all-one vectors of size c, which leads
