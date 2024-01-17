@@ -11,10 +11,10 @@ from env import FinderEnvironment
 
 GAMMA = 1  # decay rate of past observations
 UPDATE_TIME = 1000
-# EMBEDDING_SIZE = 64
+EMBEDDING_SIZE = 64
 # MAX_ITERATION = 500000
 LEARNING_RATE = 0.0001  # dai
-# MEMORY_SIZE = 500000
+MEMORY_SIZE = 500000
 Alpha = 0.001  # weight of reconstruction loss
 
 # hyperparameters for priority
@@ -37,27 +37,30 @@ num_env = 1
 # inf = 2147483647 / 2
 
 # embedding method
-# K = 3
+K = 3
 # aggregatorID = 0  # 0:sum; 1:mean; 2:GCN
 # embeddingMethod = 1  # 0:structure2vec; 1:graphsage
 
 # my parameter
+INPUT_SIZE = 2  # size of input feature, c in Algorithm S2
+N_train = 1000
 N_episode = 10000
 T = 50
 C = UPDATE_TIME
 UPDATE_GRAPHS = 100
 tensor_type = torch.float32
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-n_step_replay_buffer = ExperienceReplayBuffer()
-online_Q = QNetwork()
-target_Q = QNetwork()
+n_step_replay_buffer = ExperienceReplayBuffer(MEMORY_SIZE)
+online_Q = QNetwork(INPUT_SIZE, EMBEDDING_SIZE, K, tensor_type, device)
+target_Q = QNetwork(INPUT_SIZE, EMBEDDING_SIZE, K, tensor_type, device)
 optimizer = torch.optim.Adam(online_Q.parameters(), lr=LEARNING_RATE)
 
 copy_params(target_Q, online_Q)
 
 # below graph set operation is not shown in Algorithm S3
-validate_set = prepare_validate_data(n_valid)
-train_set = prepare_train_data()
+validate_set = prepare_validate_data(n_valid, NUM_MIN, NUM_MAX)
+train_set = prepare_train_data(N_train, NUM_MIN, NUM_MAX)
 
 # In author's code, the idea of episode in Algorithm S3 is discarded.
 # Instead, author obtains 1000 random-action 4-tuples by PlayGame on graphs in train_set in advance,
@@ -75,10 +78,10 @@ train_set = prepare_train_data()
 
 env_list = []
 for i in range(num_env):
-    env = FinderEnvironment(N_STEP)
+    env = FinderEnvironment(N_STEP, tensor_type, device)
     env.load_graph(random.choice(train_set))
     env_list.append(env)
-play_game(1000, 1, N_STEP, online_Q, env_list, n_step_replay_buffer, train_set)
+play_game(1000, 1, N_STEP, online_Q, env_list, n_step_replay_buffer, train_set, tensor_type, device)
 
 total_training_cnt = 0
 epsilon_start = 1.0
@@ -90,7 +93,7 @@ for episode in range(1, N_episode+1):
 
         print('300 episodes total time: %.2fs\n' % (time.time() - time_300_episode))
         t_start = time.time()
-        robustness = test(validate_set, online_Q, N_STEP, n_valid)
+        robustness = test(validate_set, online_Q, N_STEP, n_valid, tensor_type, device)
         t_end = time.time()
         print('iter %d, eps %.4f, average size of vc:%.6f' % (episode, epsilon, robustness))
         print('testing 200 graphs time: %.2fs' % (t_end - t_start))
@@ -101,23 +104,23 @@ for episode in range(1, N_episode+1):
         )
 
     if episode % UPDATE_GRAPHS == 0:
-        train_set = prepare_train_data()
+        train_set = prepare_train_data(N_train, NUM_MIN, NUM_MAX)
     for t in range(T):
         optimizer.zero_grad()
         s_t, a_t, r, s_t_n, terminal = n_step_replay_buffer.sample(BATCH_SIZE)
         # calculate y_j, as in Q_true
-        r = torch.tensor(r, dtype=tensor_type)
-        Q_s_t_n_chosen = torch.zeros(len(r), dtype=tensor_type)
+        r = torch.tensor(r, dtype=tensor_type, device=device)
+        Q_s_t_n_chosen = torch.zeros(len(r), dtype=tensor_type, device=device)
         if False in terminal:
-            Q_s_t_n = target_Q(prepare_batch(True, s_t=s_t_n))
-            Q_s_t_n_max = torch.zeros(len(s_t_n), dtype=tensor_type)
+            Q_s_t_n = target_Q(prepare_batch(True, s_t=s_t_n, tensor_type=tensor_type, device=device))
+            Q_s_t_n_max = torch.zeros(len(s_t_n), dtype=tensor_type, device=device)
             cnt = 0
             for i in range(len(s_t_n)):
                 Q_s_t_n_max[i] = torch.max(Q_s_t_n[cnt:cnt + s_t_n[i].shape[0]])
             Q_s_t_n_chosen = torch.where(torch.tensor(terminal), 0, 1) * Q_s_t_n_max
         Q_true = r + GAMMA * Q_s_t_n_chosen
         # calculate Q_pred and loss
-        Q_pred, loss_graph_recons = online_Q(*prepare_batch(q_for_all=False, s_t=s_t, a_t=a_t))
+        Q_pred, loss_graph_recons = online_Q(*prepare_batch(q_for_all=False, s_t=s_t, a_t=a_t, tensor_type=tensor_type, device=device))
         Q_pred = torch.reshape(Q_pred, [Q_true.shape[0]])
         loss_rl = F.mse_loss(Q_pred, Q_true)
         loss = loss_rl + Alpha * loss_graph_recons
@@ -127,7 +130,7 @@ for episode in range(1, N_episode+1):
         total_training_cnt += 1
 
         if total_training_cnt % 10 == 0:
-            play_game(10, epsilon, N_STEP, online_Q, env_list, n_step_replay_buffer, train_set)
+            play_game(10, epsilon, N_STEP, online_Q, env_list, n_step_replay_buffer, train_set, tensor_type, device)
         if total_training_cnt % UPDATE_TIME == 0:
             copy_params(target_Q, online_Q)
 

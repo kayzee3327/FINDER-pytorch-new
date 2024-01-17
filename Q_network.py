@@ -5,48 +5,13 @@ import torch.sparse as sparse
 
 from Q_network_utils import tensor_init, get_graph_reconstruction_loss
 
-# GAMMA = 1  # decay rate of past observations
-# UPDATE_TIME = 1000
-EMBEDDING_SIZE = 64
-# MAX_ITERATION = 500000
-# LEARNING_RATE = 0.0001  # dai
-# MEMORY_SIZE = 500000
-# Alpha = 0.001  # weight of reconstruction loss
-
-# hyperparameters for priority
-# epsilon = 0.0000001  # small amount to avoid zero priority
-# alpha = 0.6  # [0~1] convert the importance of TD error to priority
-# beta = 0.4  # importance-sampling, from initial value increasing to 1
-# beta_increment_per_sampling = 0.001
-# TD_err_upper = 1.  # clipped abs error
-
-# other network para
-# N_STEP = 5
-# NUM_MIN = 30
-# NUM_MAX = 50
-# REG_HIDDEN = 32
-# BATCH_SIZE = 64
-# initialization_stddev = 0.01  # 权重初始化的方差
-# n_valid = 200
-# aux_dim = 4
-# num_env = 1
-# inf = 2147483647 / 2
-
-# embedding method
-K = 3
-# aggregatorID = 0  # 0:sum; 1:mean; 2:GCN
-# embeddingMethod = 1  # 0:structure2vec; 1:graphsage
-
-# my parameter
-INPUT_SIZE = 2  # size of input feature, c in Algorithm S2
-
 
 class QNetwork(nn.Module):
-    def __init__(self, tensor_type=torch.float32):
+    def __init__(self, input_size, embedding_size, k, tensor_type, device):
         super().__init__()
 
-        self.encoding = Encoding(tensor_type)
-        self.decoding = Decoding(tensor_type)
+        self.encoding = Encoding(input_size, embedding_size, k, tensor_type, device)
+        self.decoding = Decoding(embedding_size, tensor_type, device)
 
     def forward(
             self,
@@ -56,13 +21,13 @@ class QNetwork(nn.Module):
             need_q_for_all: bool,
             need_graph_recons_loss: bool = False,
             laplacian_node_node: sparse.Tensor = None,
+            depth=None,
             input_features=None,
-            input_feature_s=None,
-            depth=K
+            input_feature_s=None
     ):
         if need_graph_recons_loss:
             assert laplacian_node_node is not None
-        node_embedding, state_embedding = self.encoding(node_node, batch_node, input_features, input_feature_s, depth)
+        node_embedding, state_embedding = self.encoding(node_node, batch_node, depth, input_features, input_feature_s)
         Q = self.decoding(actions_or_node_batch, node_embedding, state_embedding, need_q_for_all)
 
         if need_graph_recons_loss:
@@ -72,13 +37,13 @@ class QNetwork(nn.Module):
 
 
 class Encoding(nn.Module):
-    def __init__(self, tensor_type, input_size=INPUT_SIZE, embedding_size=EMBEDDING_SIZE):
+    def __init__(self, input_size, embedding_size, k, tensor_type, device):
         super().__init__()
 
         # parameters
-        self.W_1 = nn.Parameter(tensor_init([input_size, embedding_size], tensor_type))
-        self.W_2 = nn.Parameter(tensor_init([embedding_size, embedding_size], tensor_type))
-        self.W_3 = nn.Parameter(tensor_init([embedding_size, embedding_size], tensor_type))
+        self.W_1 = nn.Parameter(tensor_init([input_size, embedding_size], tensor_type, device))
+        self.W_2 = nn.Parameter(tensor_init([embedding_size, embedding_size], tensor_type, device))
+        self.W_3 = nn.Parameter(tensor_init([embedding_size, embedding_size], tensor_type, device))
         self.relu = nn.Sequential(
             nn.Linear(2 * embedding_size, embedding_size),
             nn.ReLU()
@@ -87,21 +52,29 @@ class Encoding(nn.Module):
         # the state embedding to be determined by the graph structure only"
         self.input_size = input_size
         self.tensor_type = tensor_type
+        self.device = device
+        self.depth = k
 
     def forward(
             self,
             node_node: sparse.Tensor,  # graph representation: node-node
             batch_node: sparse.Tensor,  # graph representation: batch-node
+            depth=None,
             input_features=None,
-            input_feature_s=None,
-            depth=K
+            input_feature_s=None
     ):
+        if depth is None:
+            if self.depth is None:
+                raise TypeError("depth of GraphSAGE is None")
+            else:
+                depth = self.depth
+
         node_cnt = node_node.shape[0]
         batch_size = batch_node.shape[0]
         if input_features is None:
-            input_features = torch.ones([node_cnt, self.input_size], dtype=self.tensor_type)
+            input_features = torch.ones([node_cnt, self.input_size], dtype=self.tensor_type, device=self.device)
         if input_feature_s is None:
-            input_feature_s = torch.ones([batch_size, self.input_size], dtype=self.tensor_type)
+            input_feature_s = torch.ones([batch_size, self.input_size], dtype=self.tensor_type, device=self.device)
 
         # _s suffix means this tensor is related to the virtual node
         h_v_0 = f.relu(torch.matmul(input_features, self.W_1))
@@ -140,11 +113,11 @@ class Encoding(nn.Module):
 
 
 class Decoding(nn.Module):
-    def __init__(self, tensor_type, embedding_size=EMBEDDING_SIZE):
+    def __init__(self, embedding_size, tensor_type, device):
         super().__init__()
 
-        self.W_4 = nn.Parameter(tensor_init([embedding_size, 1], tensor_type))
-        self.W_5 = nn.Parameter(tensor_init([embedding_size, 1], tensor_type))
+        self.W_4 = nn.Parameter(tensor_init([embedding_size, 1], tensor_type, device))
+        self.W_5 = nn.Parameter(tensor_init([embedding_size, 1], tensor_type, device))
 
         self.embedding_size = embedding_size
 

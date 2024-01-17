@@ -5,9 +5,9 @@ from torch import Tensor
 initialization_stddev = 0.01
 
 
-def tensor_init(shape: list | tuple, tensor_type, method="truncated normal") -> Tensor:
+def tensor_init(shape: list | tuple, tensor_type, device, method="truncated normal") -> Tensor:
     if method == "truncated normal":
-        t = torch.ones(shape, dtype=tensor_type)
+        t = torch.ones(shape, dtype=tensor_type, device=device)
         t = torch.nn.init.trunc_normal_(
             t,
             std=initialization_stddev,
