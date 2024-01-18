@@ -1,7 +1,6 @@
 .idea
 test
-models
+
 
 test.ipynb
 unit_test.ipynb
-evaluate.ipynb

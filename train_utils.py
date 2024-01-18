@@ -55,7 +55,8 @@ def prepare_batch(
             # node_node
             adj_mat_list = []
             for env in env_list:
-                adj_mat_list.append(torch.tensor(nx.adjacency_matrix(env.G).todense(), dtype=tensor_type, device=device))
+                adj_mat_list.append(
+                    torch.tensor(nx.adjacency_matrix(env.G).todense(), dtype=tensor_type, device=device))
             node_node = torch.block_diag(*tuple(adj_mat_list)).to_sparse_coo()
             # batch_node
             batch_node = node_batch.T
@@ -117,7 +118,8 @@ def play_game(
 
         if random.uniform(0, 1) > epsilon:
             # [num_nodes_in_all_envs, 1]
-            Q_pred = online_network(*prepare_batch(env_list=env_list, q_for_all=True, tensor_type=tensor_type, device=device))
+            Q_pred = online_network(
+                *prepare_batch(env_list=env_list, q_for_all=True, tensor_type=tensor_type, device=device))
             cnt = 0
             for env in env_list:
                 n_node = len(env.G.nodes)
@@ -126,7 +128,7 @@ def play_game(
                 env.step(action)
         else:
             for env in env_list:
-                action = random.randint(0, len(env.G.nodes)-1)
+                action = random.randint(0, len(env.G.nodes) - 1)
                 env.step(action)
 
 
@@ -136,11 +138,12 @@ def test(
         n_step,
         n_validate,
         tensor_type,
-        device
+        device,
+        test_set=False
 ):
     robustness_sum = 0
     test_env = FinderEnvironment(n_step, tensor_type, device)
-
+    result = []
     for i in range(n_validate):
         test_env.load_graph(validate_set[i])
         critical_nodes = []
@@ -149,7 +152,12 @@ def test(
             critical_nodes.append(test_env.deduction_step(torch.argmax(Q_pred)))
         sol = critical_nodes + list(set(validate_set[i].nodes) ^ set(critical_nodes))
         robustness_sum += accumulated_normalized_connectivity(sol, validate_set[i])
+        if test_set:
+            print(robustness_sum)
+            result.append(robustness_sum)
+            robustness_sum = 0
 
-    return robustness_sum / n_validate
-
-
+    if not test_set:
+        return robustness_sum / n_validate
+    else:
+        return result
