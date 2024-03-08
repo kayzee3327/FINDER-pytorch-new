@@ -64,7 +64,7 @@ def prepare_batch(
         elif s_t is not None:
             ones_graph = []
             for s in s_t:
-                ones_graph.append(torch.ones([len(s.shape[0]), 1], dtype=tensor_type, device=device))
+                ones_graph.append(torch.ones([s.shape[0], 1], dtype=tensor_type, device=device))
             node_batch = torch.block_diag(*tuple(ones_graph)).to_sparse_coo()
             node_node = torch.block_diag(*tuple(s_t)).to_sparse_coo()
             batch_node = node_batch.T
